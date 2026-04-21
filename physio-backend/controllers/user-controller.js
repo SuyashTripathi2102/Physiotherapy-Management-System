@@ -1,17 +1,28 @@
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { Op } = require('sequelize');
 
 //register - signup 
 const signupUser = async (req,res) => {
     try{
-        const {username , password , role} = req.body;
-        // check if user exist
-        const checkUserData = await User.findOne({where:{username}});
-        if(checkUserData){
-           return res.status(400).json({
-                success : false,
-                message : "User is already exist!!!"
+        const { username, email, password, role } = req.body;
+        // Check if all fields are provided
+        if (!username || !email || !password || !role) {
+            return res.status(400).json({ success: false, message: 'All fields are required' });
+        }
+
+        // Check if username or email exists
+        const existingUser = await User.findOne({
+            where: {
+            [Op.or]: [{ username }, { email }]
+            }
+        });
+
+        if (existingUser) {
+            return res.status(400).json({
+            success: false,
+            message: 'Username or email already exists'
             });
         }
         // has password
@@ -21,8 +32,9 @@ const signupUser = async (req,res) => {
         // creating new User and saving in the database 
         const newlyCreatedUser = await User.create({
             username ,
+            email ,
             password : hashedPassword,
-            role : role || 'user'
+            role : role || 'doctor'
         });
 
         return res.status(201).json({
@@ -42,14 +54,32 @@ const signupUser = async (req,res) => {
 //Login-User
 
 const loginUser = async (req,res) => {
-    const {username,password} = req.body;
+    const { identifier, password } = req.body;
 
-    //check if user register/signedup
-    const checkUserData = await User.findOne({where : {username}});
+    // Check if all fields are provided
+if (!identifier || !password) {
+  return res.status(400).json({ message: "Username or email and password are required" });
+}
+
+// Step 1: Trim whitespace from identifier
+const cleanIdentifier = identifier.trim();
+
+// Step 2: Check if it's an email (contains "@")
+const isEmail = cleanIdentifier.includes('@');
+
+    const checkUserData = await User.findOne({
+        where: {
+          [Op.or]: [
+            { email: isEmail ? cleanIdentifier : null },
+            { username: isEmail ? null : cleanIdentifier }
+          ]
+        }
+      });
+
     if(!checkUserData){
       return  res.status(401).json({
             success : false,
-            message: "User is not register/signedup pls signup "
+            message: "User not found Please signup first"
         });
     }
     //check if password match
@@ -62,19 +92,26 @@ const loginUser = async (req,res) => {
     }
 
     //create user token
-    const accessToken = jwt.sign({
+    const token = jwt.sign({
         id : checkUserData.id,
         username : checkUserData.username,
+        email: checkUserData.email,
         role : checkUserData.role
     },process.env.JWT_SECRET_KEY,{
-        expiresIn : '1h'
+        expiresIn : '1minutes'
     });
     res.status(201).json({
-        success : true,
-        message : 'Logged-In Successfull',
-        role : checkUserData.role,
-        accessToken
-    });
+        success: true,
+        message: 'Logged-In Successfully',
+        user: {
+          id: checkUserData.id,
+          username: checkUserData.username,
+          email: checkUserData.email,
+          role: checkUserData.role
+        },
+        token
+      });
+      
 }
 
 
